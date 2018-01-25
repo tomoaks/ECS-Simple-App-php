@@ -1,0 +1,135 @@
+Parameters:
+  Tag:
+    Type: String
+    Default: latest
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  TargetGroupArn:
+    Type: String
+
+  ClusterName:
+    Type: String
+
+  RepositoryName:
+    Type: String
+
+  ECSServiceRoleName:
+    Type: String
+    Default: ecsServiceRole
+
+  ECSAutoscaleRoleName:
+    Type: String
+    Default: ecsAutoscaleRole
+
+Resources:
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ClusterName
+      Role: !Ref ECSServiceRoleName
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinition
+      LoadBalancers:
+        - ContainerName: php-sample
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroupArn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}
+      ContainerDefinitions:
+        - Name: php-sample
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}:${Tag}
+          Essential: true
+          Cpu: 1024
+          MemoryReservation: 1024
+          PortMappings:
+            - ContainerPort: 80
+  
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 20
+      MinCapacity: 1
+      ResourceId: !Sub
+        - service/${ClusterName}/${ServiceName}
+        - { ServiceName: !GetAtt Service.Name}
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/${ECSAutoscaleRoleName}
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ECSServiceScaleInAlarm:
+    Type: "AWS::CloudWatch::Alarm"
+    Properties: 
+      AlarmActions: [!Ref ScaleInPolicy]
+      AlarmName: !Sub ${AWS::StackName}-ECSServiceScaleInAlarm
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Sub
+          - service/${ClusterName}/${ServiceName}
+          - { ServiceName: !GetAtt Service.Name}
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: AWS/ECS
+      Period: 300
+      Statistic: Average
+      Threshold: 10
+
+  ScaleInPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleIn
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref ScalableTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - ScalingAdjustment: -1
+            MetricIntervalUpperBound: 0
+
+  ECSServiceScaleOutAlarm:
+    Type: "AWS::CloudWatch::Alarm"
+    Properties:
+      AlarmActions: [!Ref ScaleOutPolicy]
+      AlarmName: !Sub ${AWS::StackName}-ECSServiceScaleOutAlarm
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Sub
+          - service/${ClusterName}/${ServiceName}
+          - { ServiceName: !GetAtt Service.Name}
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: AWS/ECS
+      Period: 300
+      Statistic: Average
+      Threshold: 30
+
+  ScaleOutPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleOut
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref ScalableTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - ScalingAdjustment: 1
+            MetricIntervalLowerBound: 0
+

@@ -1,0 +1,6 @@
+{
+  "Tag" : { "Fn::GetParam" : [ "MyAppBuild", "build.json", "tag" ] },
+  "ClusterName": "demo-cluster",
+  "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-1:XXXXXX:targetgroup/ecs-demo-c-php-sample/XXXXXXXXXXXX",
+  "RepositoryName": "php-sample"
+}

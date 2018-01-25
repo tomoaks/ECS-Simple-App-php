@@ -1,0 +1,15 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - $(aws ecr get-login) 
+      - TAG="$(echo -n "$CODEBUILD_BUILD_ID" | sed "s/.*:\([[:xdigit:]]\{7\}\).*/\1/")"
+  build:
+    commands:
+      - docker build --tag "${REPOSITORY_URI}:${TAG}" .
+  post_build:
+    commands:
+      - docker push "${REPOSITORY_URI}:${TAG}"
+      - printf '{"tag":"%s"}' $TAG > build.json
+artifacts:
+  files: build.json
